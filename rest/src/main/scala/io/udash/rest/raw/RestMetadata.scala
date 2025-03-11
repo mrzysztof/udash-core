@@ -2,12 +2,13 @@ package io.udash
 package rest
 package raw
 
-import com.avsystem.commons._
-import com.avsystem.commons.meta._
-import com.avsystem.commons.rpc._
+import com.avsystem.commons.*
+import com.avsystem.commons.meta.*
+import com.avsystem.commons.rpc.*
 import io.udash.macros.RestMacros
 import io.udash.rest.raw.RestMetadata.ResolutionTrie
 import monix.eval.{Task, TaskLike}
+import monix.reactive.{Observable, ObservableLike}
 
 import scala.annotation.implicitNotFound
 
@@ -269,6 +270,10 @@ sealed abstract class RestMethodMetadata[T] extends TypedMetadata[T] {
   def adjustResponse(asyncResponse: Task[RestResponse]): Task[RestResponse] =
     if (responseAdjusters.isEmpty) asyncResponse
     else asyncResponse.map(resp => responseAdjusters.foldRight(resp)(_ adjustResponse _))
+
+  def adjustResponse(asyncResponse: Observable[RestResponse]): Observable[RestResponse] =
+    if (responseAdjusters.isEmpty) asyncResponse
+    else asyncResponse.map(resp => responseAdjusters.foldRight(resp)(_ adjustResponse _))
 }
 
 final case class PrefixMetadata[T](
@@ -324,6 +329,8 @@ final case class HttpMethodMetadata[T](
 final case class HttpResponseType[T]()
 object HttpResponseType {
   implicit def asyncEffectResponseType[F[_] : TaskLike, T]: HttpResponseType[F[T]] =
+    HttpResponseType()
+  implicit def obsResponseType[F[_] : ObservableLike, T]: HttpResponseType[F[T]] =
     HttpResponseType()
 }
 

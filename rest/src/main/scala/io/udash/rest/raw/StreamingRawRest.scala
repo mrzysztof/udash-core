@@ -6,43 +6,16 @@ import com.avsystem.commons.*
 import com.avsystem.commons.meta.*
 import com.avsystem.commons.misc.ImplicitNotFound
 import com.avsystem.commons.rpc.*
-import monix.eval.{Task, TaskLike}
-import monix.reactive.Observable
+import io.udash.rest.{BodyTypeTag, RestMethodTag}
+import monix.reactive.{Observable, ObservableLike}
 
 import scala.annotation.{implicitNotFound, tailrec}
 
-sealed abstract class RestMethodCall {
-  val pathParams: List[PlainValue]
-  val metadata: RestMethodMetadata[_]
-  def rpcName: String = metadata.name
-}
-final case class PrefixCall(pathParams: List[PlainValue], metadata: PrefixMetadata[_]) extends RestMethodCall
-final case class HttpCall(pathParams: List[PlainValue], metadata: HttpMethodMetadata[_]) extends RestMethodCall
-
-final case class ResolvedCall(root: RestMetadata[_], prefixes: List[PrefixCall], finalCall: HttpCall) {
-  lazy val pathPattern: List[PathPatternElement] =
-    if (prefixes.isEmpty) finalCall.metadata.pathPattern
-    else (prefixes.iterator.flatMap(_.metadata.pathPattern.iterator) ++
-      finalCall.metadata.pathPattern.iterator).toList
-
-  def method: HttpMethod = finalCall.metadata.method
-
-  def rpcChainRepr: String =
-    if (prefixes.isEmpty) finalCall.rpcName
-    else prefixes.iterator.map(_.rpcName).mkString("", "->", s"->${finalCall.rpcName}")
-
-  def adjustResponse(response: Task[RestResponse]): Task[RestResponse] =
-    prefixes.foldRight(finalCall.metadata.adjustResponse(response))(_.metadata.adjustResponse(_))
-
-  def adjustResponse(response: Observable[RestResponse]): Observable[RestResponse] =
-    prefixes.foldRight(finalCall.metadata.adjustResponse(response))(_.metadata.adjustResponse(_))
-}
-
 @methodTag[RestMethodTag]
 @methodTag[BodyTypeTag]
-trait RawRest {
+trait StreamingRawRest {
 
-  import RawRest._
+  import StreamingRawRest.*
 
   // declaration order of raw methods matters - it determines their priority!
 
@@ -55,7 +28,7 @@ trait RawRest {
   def prefix(
     @methodName name: String,
     @composite parameters: RestParameters
-  ): Try[RawRest]
+  ): Try[StreamingRawRest]
 
   @multi @tried
   @tagged[GET]
@@ -66,7 +39,7 @@ trait RawRest {
   def get(
     @methodName name: String,
     @composite parameters: RestParameters
-  ): Task[RestResponse]
+  ): Observable[RestResponse]
 
   @multi @tried
   @tagged[BodyMethodTag](whenUntagged = new POST)
@@ -77,7 +50,7 @@ trait RawRest {
     @methodName name: String,
     @composite parameters: RestParameters,
     @multi @tagged[Body] body: Mapping[PlainValue]
-  ): Task[RestResponse]
+  ): Observable[RestResponse]
 
   @multi @tried
   @tagged[BodyMethodTag](whenUntagged = new POST)
@@ -88,7 +61,7 @@ trait RawRest {
     @methodName name: String,
     @composite parameters: RestParameters,
     @multi @tagged[Body] body: Mapping[JsonValue]
-  ): Task[RestResponse]
+  ): Observable[RestResponse]
 
   @multi @tried
   @tagged[BodyMethodTag](whenUntagged = new POST)
@@ -100,12 +73,12 @@ trait RawRest {
     @methodName name: String,
     @composite parameters: RestParameters,
     @encoded @tagged[Body] @unmatched(RawRest.MissingBodyParam) body: HttpBody
-  ): Task[RestResponse]
+  ): Observable[RestResponse]
 
   def asHandleRequest(metadata: RestMetadata[_]): HandleRequest =
-    RawRest.resolveAndHandle(metadata)(handleResolved)
+    StreamingRawRest.resolveAndHandle(metadata)(handleResolved)
 
-  def handleResolved(request: RestRequest, resolved: ResolvedCall): Task[RestResponse] = {
+  def handleResolved(request: RestRequest, resolved: ResolvedCall): Observable[RestResponse] = {
     val RestRequest(method, parameters, body) = request
     val ResolvedCall(_, prefixes, finalCall) = resolved
     val HttpCall(finalPathParams, finalMetadata) = finalCall
@@ -115,18 +88,18 @@ trait RawRest {
     }
 
     @tailrec
-    def resolveCall(rawRest: RawRest, prefixes: List[PrefixCall]): Task[RestResponse] = prefixes match {
+    def resolveCall(rawRest: StreamingRawRest, prefixes: List[PrefixCall]): Observable[RestResponse] = prefixes match {
       case PrefixCall(pathParams, pm) :: tail =>
         rawRest.prefix(pm.name, parameters.copy(path = pathParams)) match {
           case Success(nextRawRest) => resolveCall(nextRawRest, tail)
-          case Failure(e: HttpErrorException) => Task.now(e.toResponse)
-          case Failure(cause) => Task.raiseError(cause)
+          case Failure(e: HttpErrorException) => Observable.now(e.toResponse)
+          case Failure(cause) => Observable.raiseError(cause)
         }
       case Nil =>
         val finalParameters = parameters.copy(path = finalPathParams)
-        if (method == HttpMethod.GET)
+        if (method == HttpMethod.GET) {
           rawRest.get(finalMetadata.name, finalParameters)
-        else if (finalMetadata.customBody)
+        } else if (finalMetadata.customBody)
           rawRest.handleCustom(finalMetadata.name, finalParameters, body)
         else if (finalMetadata.formBody)
           rawRest.handleForm(finalMetadata.name, finalParameters, handleBadBody(HttpBody.parseFormBody(body)))
@@ -135,7 +108,7 @@ trait RawRest {
     }
     try resolved.adjustResponse(resolveCall(this, prefixes)) catch {
       case e: InvalidRpcCall =>
-        Task.now(extractHttpException(e).map(_.toResponse).getOrElse(RestResponse.plain(400, e.getMessage)))
+        Observable.now(extractHttpException(e).map(_.toResponse).getOrElse(RestResponse.plain(400, e.getMessage)))
     }
   }
 
@@ -146,22 +119,22 @@ trait RawRest {
   }
 }
 
-object RawRest extends RawRpcCompanion[RawRest] {
-  type HandleRequest = RestRequest => Task[RestResponse]
+object StreamingRawRest extends RawRpcCompanion[StreamingRawRest] {
+  type HandleRequest = RestRequest => Observable[RestResponse]
 
   /**
    * Similar to [[io.udash.rest.raw.RawRest.HandleRequest HandleRequest]] but accepts already resolved path as a second argument.
    */
-  type HandleResolvedRequest = (RestRequest, ResolvedCall) => Task[RestResponse]
+  type HandleResolvedRequest = (RestRequest, ResolvedCall) => Observable[RestResponse]
 
-  type AsTask[F[_]] = TaskLike[F]
-  trait FromTask[F[_]] {
-    def fromTask[A](task: Task[A]): F[A]
+  type AsObservable[F[_]] = ObservableLike[F]
+  trait FromObservable[F[_]] {
+    def fromObservable[A](task: Observable[A]): F[A]
   }
 
-  implicit val taskFromTask: FromTask[Task] =
-    new FromTask[Task] {
-      override def fromTask[A](task: Task[A]): Task[A] = task
+  implicit val observableFromObservable: FromObservable[Observable] =
+    new FromObservable[Observable] {
+      override def fromObservable[A](task: Observable[A]): Observable[A] = task
     }
 
   final val NotValidPrefixMethod =
@@ -186,16 +159,16 @@ object RawRest extends RawRpcCompanion[RawRest] {
     "result type ${T} is not a valid REST API trait, does it have a properly defined companion object?"
 
   @implicitNotFound(InvalidTraitMessage)
-  implicit def rawRestAsRealNotFound[T]: ImplicitNotFound[AsReal[RawRest, T]] = ImplicitNotFound()
+  implicit def rawRestAsRealNotFound[T]: ImplicitNotFound[AsReal[StreamingRawRest, T]] = ImplicitNotFound()
 
   @implicitNotFound(InvalidTraitMessage)
-  implicit def rawRestAsRawNotFound[T]: ImplicitNotFound[AsRaw[RawRest, T]] = ImplicitNotFound()
+  implicit def rawRestAsRawNotFound[T]: ImplicitNotFound[AsRaw[StreamingRawRest, T]] = ImplicitNotFound()
 
   def fromHandleRequest[Real: AsRealRpc : RestMetadata](handleRequest: HandleRequest): Real =
-    RawRest.asReal(new DefaultRawRest(Nil, RestMetadata[Real], RestParameters.Empty, handleRequest))
+    StreamingRawRest.asReal(new DefaultRawRest(Nil, RestMetadata[Real], RestParameters.Empty, handleRequest))
 
   def asHandleRequest[Real: AsRawRpc : RestMetadata](real: Real): HandleRequest =
-    RawRest.asRaw(real).asHandleRequest(RestMetadata[Real])
+    StreamingRawRest.asRaw(real).asHandleRequest(RestMetadata[Real])
 
   def resolveAndHandle(metadata: RestMetadata[_])(handleResolved: HandleResolvedRequest): HandleRequest = {
     metadata.ensureValid()
@@ -205,7 +178,7 @@ object RawRest extends RawRpcCompanion[RawRest] {
       metadata.resolvePath(path) match {
         case Nil =>
           val message = s"path ${PlainValue.encodePath(path)} not found"
-          Task.now(RestResponse.plain(404, message))
+          Observable.now(RestResponse.plain(404, message))
         case calls => request.method match {
           case HttpMethod.OPTIONS =>
             val meths = calls.iterator.map(_.method).flatMap {
@@ -214,7 +187,7 @@ object RawRest extends RawRpcCompanion[RawRest] {
             } ++ Iterator(HttpMethod.OPTIONS)
             val response = RestResponse(200,
               IMapping.create("Allow" -> PlainValue(meths.mkString(","))), HttpBody.Empty)
-            Task.now(response)
+            Observable.now(response)
           case wireMethod =>
             val head = wireMethod == HttpMethod.HEAD
             val req = if (head) request.copy(method = HttpMethod.GET) else request
@@ -224,7 +197,7 @@ object RawRest extends RawRpcCompanion[RawRest] {
                 if (head) resp.map(_.copy(body = HttpBody.empty)) else resp
               case None =>
                 val message = s"$wireMethod not allowed on path ${PlainValue.encodePath(path)}"
-                Task.now(RestResponse.plain(405, message))
+                Observable.now(RestResponse.plain(405, message))
             }
         }
       }
@@ -236,32 +209,32 @@ object RawRest extends RawRpcCompanion[RawRest] {
     metadata: RestMetadata[_],
     prefixParams: RestParameters,
     handleRequest: HandleRequest
-  ) extends RawRest {
+  ) extends StreamingRawRest {
 
-    def prefix(name: String, parameters: RestParameters): Try[RawRest] =
+    def prefix(name: String, parameters: RestParameters): Try[StreamingRawRest] =
       metadata.prefixesByName.get(name).map { prefixMeta =>
         val newHeaders = prefixParams.append(prefixMeta, parameters)
         Success(new DefaultRawRest(prefixMeta :: prefixMetas, prefixMeta.result.value, newHeaders, handleRequest))
       } getOrElse Failure(new UnknownRpc(name, "prefix"))
 
-    def get(name: String, parameters: RestParameters): Task[RestResponse] =
+    def get(name: String, parameters: RestParameters): Observable[RestResponse] =
       doHandle("get", name, parameters, HttpBody.Empty)
 
-    def handleJson(name: String, parameters: RestParameters, body: Mapping[JsonValue]): Task[RestResponse] =
+    def handleJson(name: String, parameters: RestParameters, body: Mapping[JsonValue]): Observable[RestResponse] =
       doHandle("handle", name, parameters, HttpBody.createJsonBody(body))
 
-    def handleForm(name: String, parameters: RestParameters, body: Mapping[PlainValue]): Task[RestResponse] =
+    def handleForm(name: String, parameters: RestParameters, body: Mapping[PlainValue]): Observable[RestResponse] =
       doHandle("handleForm", name, parameters, HttpBody.createFormBody(body))
 
-    def handleCustom(name: String, parameters: RestParameters, body: HttpBody): Task[RestResponse] =
+    def handleCustom(name: String, parameters: RestParameters, body: HttpBody): Observable[RestResponse] =
       doHandle("handleSingle", name, parameters, body)
 
-    private def doHandle(rawName: String, name: String, parameters: RestParameters, body: HttpBody): Task[RestResponse] =
+    private def doHandle(rawName: String, name: String, parameters: RestParameters, body: HttpBody): Observable[RestResponse] =
       metadata.httpMethodsByName.get(name).map { methodMeta =>
         val newHeaders = prefixParams.append(methodMeta, parameters)
         val baseRequest = RestRequest(methodMeta.method, newHeaders, body)
         val request = prefixMetas.foldLeft(methodMeta.adjustRequest(baseRequest))((req, meta) => meta.adjustRequest(req))
         handleRequest(request)
-      } getOrElse Task.raiseError(new UnknownRpc(name, rawName))
+      } getOrElse Observable.raiseError(new UnknownRpc(name, rawName))
   }
 }
