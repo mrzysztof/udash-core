@@ -5,9 +5,7 @@ import com.avsystem.commons.*
 import com.avsystem.commons.misc.ImplicitNotFound
 import com.avsystem.commons.rpc.{AsRaw, AsReal}
 import io.udash.rest.raw.RawRest.FromTask
-import io.udash.rest.raw.StreamingRawRest.FromObservable
 import monix.eval.{Task, TaskLike}
-import monix.reactive.{Observable, ObservableLike}
 
 import scala.annotation.implicitNotFound
 
@@ -41,13 +39,6 @@ object RestResponse extends RestResponseLowPrio {
       }
   }
 
-  implicit class ObservableOps(private val asyncResp: Observable[RestResponse]) extends AnyVal {
-    def recoverHttpError: Observable[RestResponse] =
-      asyncResp.onErrorRecover {
-        case e: HttpErrorException => e.toResponse
-      }
-  }
-
   implicit def taskLikeFromResponseTask[F[_], T](
     implicit fromTask: FromTask[F], fromResponse: AsReal[RestResponse, T]
   ): AsReal[Task[RestResponse], Try[F[T]]] =
@@ -57,16 +48,6 @@ object RestResponse extends RestResponseLowPrio {
     implicit taskLike: TaskLike[F], asResponse: AsRaw[RestResponse, T]
   ): AsRaw[Task[RestResponse], Try[F[T]]] =
     _.fold(Task.raiseError, ft => Task.from(ft).map(asResponse.asRaw)).recoverHttpError
-
-  implicit def obsLikeFromResponseObs[F[_], T](
-    implicit fromObs: FromObservable[F], fromResponse: AsReal[RestResponse, T]
-  ): AsReal[Observable[RestResponse], Try[F[T]]] =
-    rawObservable => Success(fromObs.fromObservable(rawObservable.map(fromResponse.asReal)))
-
-  implicit def obsLikeToResponseObs[F[_], T](
-    implicit obsLike: ObservableLike[F], asResponse: AsRaw[RestResponse, T]
-  ): AsRaw[Observable[RestResponse], Try[F[T]]] =
-    _.fold(Observable.raiseError, ft => Observable.from(ft).map(asResponse.asRaw)).recoverHttpError
 
   // following two implicits provide nice error messages when serialization is lacking for HTTP method result
   // while the async wrapper is fine (e.g. Future)

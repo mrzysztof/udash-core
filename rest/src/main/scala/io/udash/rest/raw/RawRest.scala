@@ -33,9 +33,6 @@ final case class ResolvedCall(root: RestMetadata[_], prefixes: List[PrefixCall],
 
   def adjustResponse(response: Task[RestResponse]): Task[RestResponse] =
     prefixes.foldRight(finalCall.metadata.adjustResponse(response))(_.metadata.adjustResponse(_))
-
-  def adjustResponse(response: Observable[RestResponse]): Observable[RestResponse] =
-    prefixes.foldRight(finalCall.metadata.adjustResponse(response))(_.metadata.adjustResponse(_))
 }
 
 @methodTag[RestMethodTag]

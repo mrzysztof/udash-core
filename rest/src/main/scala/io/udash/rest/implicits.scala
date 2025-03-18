@@ -1,17 +1,18 @@
 package io.udash
 package rest
 
-import com.avsystem.commons._
+import com.avsystem.commons.*
 import com.avsystem.commons.meta.Fallback
 import com.avsystem.commons.misc.ImplicitNotFound
 import com.avsystem.commons.rpc.{AsRaw, AsRawReal, AsReal, InvalidRpcCall}
 import com.avsystem.commons.serialization.json.{JsonStringInput, JsonStringOutput}
 import com.avsystem.commons.serialization.{GenCodec, GenKeyCodec}
-import io.udash.rest.openapi.{OpenApiMetadata, RestSchema}
+import io.udash.rest.openapi.{DataType, OpenApiMetadata, RestSchema, Schema}
+import io.udash.rest.raw.*
 import io.udash.rest.raw.RawRest.FromTask
-import io.udash.rest.raw._
 import monix.eval.Task
 import monix.execution.Scheduler
+import monix.reactive.Observable
 
 import scala.annotation.implicitNotFound
 
@@ -54,6 +55,9 @@ trait GenCodecRestImplicits extends FloatingPointRestImplicits {
       case e: InvalidRpcCall => throw e
       case NonFatal(cause) => throw new InvalidRpcCall(cause.getMessage, cause)
     }
+
+  implicit val restSchema: RestSchema[Observable[Array[Byte]]] =
+    RestSchema.plain(Schema(`type` = DataType.String, description = "custom string type"))
 
   // Implicits wrapped into `Fallback` so that they don't get higher priority just because they're imported
   // This way concrete classes may override these implicits with implicits in their companion objects

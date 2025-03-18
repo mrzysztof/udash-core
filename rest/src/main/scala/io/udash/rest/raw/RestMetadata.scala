@@ -270,10 +270,6 @@ sealed abstract class RestMethodMetadata[T] extends TypedMetadata[T] {
   def adjustResponse(asyncResponse: Task[RestResponse]): Task[RestResponse] =
     if (responseAdjusters.isEmpty) asyncResponse
     else asyncResponse.map(resp => responseAdjusters.foldRight(resp)(_ adjustResponse _))
-
-  def adjustResponse(asyncResponse: Observable[RestResponse]): Observable[RestResponse] =
-    if (responseAdjusters.isEmpty) asyncResponse
-    else asyncResponse.map(resp => responseAdjusters.foldRight(resp)(_ adjustResponse _))
 }
 
 final case class PrefixMetadata[T](
@@ -329,8 +325,6 @@ final case class HttpMethodMetadata[T](
 final case class HttpResponseType[T]()
 object HttpResponseType {
   implicit def asyncEffectResponseType[F[_] : TaskLike, T]: HttpResponseType[F[T]] =
-    HttpResponseType()
-  implicit def obsResponseType[F[_] : ObservableLike, T]: HttpResponseType[F[T]] =
     HttpResponseType()
 }
 

@@ -3,9 +3,11 @@ package rest.raw
 
 import com.avsystem.commons.misc.ImplicitNotFound
 import com.avsystem.commons.rpc.{AsRaw, AsRawReal, AsReal}
+import com.avsystem.commons.serialization.GenCodec
 import com.avsystem.commons.serialization.GenCodec.ReadFailure
 import com.avsystem.commons.serialization.json.{JsonReader, JsonStringInput, JsonStringOutput}
-import com.avsystem.commons.{JStringBuilder, Opt, OptArg, _}
+import com.avsystem.commons.{JStringBuilder, Opt, OptArg, *}
+import monix.reactive.Observable
 
 import scala.annotation.implicitNotFound
 import scala.util.hashing.MurmurHash3
@@ -82,6 +84,24 @@ object HttpBody extends HttpBodyLowPrio {
     def contentType: String = s"$mediaType;charset=$charset"
     def text(defaultCharset: String): String = content
     lazy val bytes: Array[Byte] = content.getBytes(charset)
+  }
+
+  final case class Streaming(
+    observable: Observable[Array[Byte]],
+    contentType: String = OctetStreamType,
+  ) extends HttpBody.NonEmpty {
+    def mediaType: String =
+      HttpBody.mediaTypeOf(contentType)
+
+    def text(defaultCharset: String): String =
+      throw new GenCodec.ReadFailure(
+        "Cannot directly read text from a streaming body."
+      )
+
+    def bytes: Array[Byte] =
+      throw new GenCodec.ReadFailure(
+        "Cannot directly read bytes from a streaming body."
+      )
   }
 
   /**
@@ -179,6 +199,9 @@ object HttpBody extends HttpBodyLowPrio {
 
   implicit val emptyBodyForUnit: AsRawReal[HttpBody, Unit] =
     AsRawReal.create(_ => HttpBody.Empty, _ => ())
+
+  implicit val streamingBodyForObservable: AsRawReal[HttpBody, Observable[Array[Byte]]] =
+    AsRawReal.create(HttpBody.Streaming(_), _ => Observable.now(Array.empty))
 
   implicit val octetStreamBodyForByteArray: AsRawReal[HttpBody, Array[Byte]] =
     AsRawReal.create(binary(_), body => body.readBytes(OctetStreamType))

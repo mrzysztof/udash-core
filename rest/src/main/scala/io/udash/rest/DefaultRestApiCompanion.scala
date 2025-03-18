@@ -35,6 +35,3 @@ abstract class DefaultRestApiCompanion[Real](implicit
 abstract class DefaultRestServerApiImplCompanion[Real](implicit
   inst: MacroInstances[DefaultRestImplicits, OpenApiServerImplInstances[Real]]
 ) extends RestServerOpenApiImplCompanion[DefaultRestImplicits, Real](DefaultRestImplicits)
-abstract class SDefaultRestApiCompanion[Real](implicit
-  inst: MacroInstances[DefaultRestImplicits, SOpenApiFullInstances[Real]]
-) extends SRestOpenApiCompanion[DefaultRestImplicits, Real](DefaultRestImplicits)

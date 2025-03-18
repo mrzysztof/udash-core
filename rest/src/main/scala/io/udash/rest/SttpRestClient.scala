@@ -95,9 +95,9 @@ object SttpRestClient {
         .copy(options = options)
 
     val bodyRequest = request.body match {
-      case HttpBody.Empty => paramsRequest
       case HttpBody.Textual(content, _, charset) => paramsRequest.body(content, charset)
       case HttpBody.Binary(bytes, _) => paramsRequest.body(bytes)
+      case _ => paramsRequest
     }
 
     bodyRequest.response(ResponseAsByteArray)

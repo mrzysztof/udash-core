@@ -2,11 +2,10 @@ package io.udash
 package rest.openapi
 
 import java.util.UUID
-import com.avsystem.commons.*
+import com.avsystem.commons._
 import com.avsystem.commons.misc.{ImplicitNotFound, NamedEnum, NamedEnumCompanion, Timestamp}
-import io.udash.rest.raw.*
+import io.udash.rest.raw._
 import monix.eval.TaskLike
-import monix.reactive.ObservableLike
 
 import scala.annotation.implicitNotFound
 
@@ -252,9 +251,6 @@ object RestResultType {
   implicit def forAsyncEffect[F[_] : TaskLike, T: RestResponses]: RestResultType[F[T]] =
     RestResultType(RestResponses[T].responses(_, identity))
 
-  implicit def forObservable[F[_] : ObservableLike, T: RestResponses]: RestResultType[F[T]] =
-    RestResultType(RestResponses[T].responses(_, identity))
-
   @implicitNotFound("#{forResponseType}")
   implicit def notFound[T](
     implicit forResponseType: ImplicitNotFound[HttpResponseType[T]]
@@ -262,11 +258,6 @@ object RestResultType {
 
   @implicitNotFound("#{forRestResponses}")
   implicit def notFoundForAsyncEffect[F[_] : TaskLike, T](
-    implicit forRestResponses: ImplicitNotFound[RestResponses[T]]
-  ): ImplicitNotFound[RestResultType[F[T]]] = ImplicitNotFound()
-
-  @implicitNotFound("#{forRestResponses}")
-  implicit def notFoundForObservable[F[_] : ObservableLike, T](
     implicit forRestResponses: ImplicitNotFound[RestResponses[T]]
   ): ImplicitNotFound[RestResultType[F[T]]] = ImplicitNotFound()
 }
