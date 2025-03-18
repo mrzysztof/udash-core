@@ -200,13 +200,18 @@ object HttpBody extends HttpBodyLowPrio {
   implicit val emptyBodyForUnit: AsRawReal[HttpBody, Unit] =
     AsRawReal.create(_ => HttpBody.Empty, _ => ())
 
-  implicit val streamingBodyForObservable: AsRawReal[HttpBody, Observable[Array[Byte]]] =
-    AsRawReal.create(HttpBody.Streaming(_), _ => Observable.now(Array.empty))
+//  implicit val streamingBodyForObservable: AsRawReal[HttpBody, Observable[Array[Byte]]] =
+//    AsRawReal.create(HttpBody.Streaming(_), _ => Observable.now(Array.empty))
+
+  implicit def streamingBodyForObservable2[T: GenCodec]: AsRawReal[HttpBody, Observable[T]] =
+    AsRawReal.create(v => HttpBody.Streaming(v.map(JsonStringOutput.write(_).getBytes)), _ => Observable.empty[T])
 
   implicit val octetStreamBodyForByteArray: AsRawReal[HttpBody, Array[Byte]] =
     AsRawReal.create(binary(_), body => body.readBytes(OctetStreamType))
 }
 trait HttpBodyLowPrio { this: HttpBody.type =>
+//  implicit def httpBodyJsonAsRaw[T: GenCodec]: AsRaw[HttpBody, Observable[T]] =
+//    v => HttpBody.Streaming(v.map(JsonStringOutput.write(_).toInt))
   implicit def httpBodyJsonAsRaw[T](implicit jsonAsRaw: AsRaw[JsonValue, T]): AsRaw[HttpBody, T] =
     v => HttpBody.json(jsonAsRaw.asRaw(v))
   implicit def httpBodyJsonAsReal[T](implicit jsonAsReal: AsReal[JsonValue, T]): AsReal[HttpBody, T] =

@@ -56,8 +56,8 @@ trait GenCodecRestImplicits extends FloatingPointRestImplicits {
       case NonFatal(cause) => throw new InvalidRpcCall(cause.getMessage, cause)
     }
 
-  implicit val restSchema: RestSchema[Observable[Array[Byte]]] =
-    RestSchema.plain(Schema(`type` = DataType.String, description = "custom string type"))
+  implicit def restSchema2[T: GenCodec]: RestSchema[Observable[T]] =
+    RestSchema.plain(Schema(`type` = DataType.String, description = "???"))
 
   // Implicits wrapped into `Fallback` so that they don't get higher priority just because they're imported
   // This way concrete classes may override these implicits with implicits in their companion objects

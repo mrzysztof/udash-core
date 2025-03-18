@@ -21,6 +21,7 @@ import scala.concurrent.duration.*
 object RestServlet {
   final val DefaultHandleTimeout = 30.seconds
   final val DefaultMaxPayloadSize = 16 * 1024 * 1024L // 16MB
+  final val CRLF = "\r\n".getBytes
   final val CookieHeader = "Cookie"
   private final val BufferSize = 8192
 
@@ -110,6 +111,7 @@ class RestServlet(
     case streaming: HttpBody.Streaming =>
       streaming.observable.consumeWith(Consumer.foreach { r =>
         response.getOutputStream.write(r)
+        response.getOutputStream.write(CRLF)
         response.getOutputStream.flush()
       })
     case neBody: HttpBody.NonEmpty => Task(writeNonEmptyBody(response, neBody))

@@ -8,18 +8,21 @@ import org.eclipse.jetty.server.Server
 
 import scala.concurrent.duration.DurationInt
 
+case class User(id: String, login: String)
+object User extends RestDataCompanion[User]
+
 trait UserApi2 {
   @GET
-  def get(): Task[Observable[Array[Byte]]]
+  def get(): Task[Observable[User]]
 }
 object UserApi2 extends DefaultRestApiCompanion[UserApi2]
 
 class UserApiImpl2 extends UserApi2 {
-  def get(): Task[Observable[Array[Byte]]] = Task {
+  def get(): Task[Observable[User]] = Task {
     Observable
-      .interval(100.millis)
-      .map(i => s"Chunk $i\n".getBytes)
-      .take(10)
+      .interval(500.millis)
+      .map(i => User(s"id-$i", s"login-$i"))
+      .take(5)
   }
 }
 
